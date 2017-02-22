@@ -34,8 +34,8 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
         }
 
         /**
-         * Check if WooCommerce is active.
-         */
+         * Check if WooCommerce is active. For branch again
+         */   
         public static function acfac_check_wcap_installed() {
         
             if ( class_exists( 'woocommerce_abandon_cart' ) ) {
