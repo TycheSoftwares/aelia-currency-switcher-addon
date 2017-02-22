@@ -35,6 +35,7 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
 
         /**
          * Check if WooCommerce is active.
+         * This new comment added for a branch
          */
         public static function acfac_check_wcap_installed() {
         
