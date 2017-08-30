@@ -1,6 +1,6 @@
 <?php 
 /*
-Plugin Name: Aelia Currency Switcher addon for Abandoned Cart
+Plugin Name: Aelia Currency Switcher addon for Abandoned Cart Plugin
 Plugin URI: http://www.tychesoftwares.com/store/premium-plugins/woocommerce-abandoned-cart-pro
 Description: This plugin allows you to capture the customers selected currency for the abandoned cart.
 Version: 1.0
@@ -8,34 +8,314 @@ Author: Tyche Softwares
 Author URI: http://www.tychesoftwares.com/
 */
 
-register_uninstall_hook( __FILE__, 'acfac_delete_data' );
+global $AcfacpdateChecker;
+$AcfacpdateChecker = '1.0';
 
-function acfac_delete_data() {
-    
-    global $wpdb;
+// this is the URL our updater / license checker pings. This should be the URL of the site with EDD installed
+define( 'EDD_SL_STORE_URL_ACFAC', 'http://www.tychesoftwares.com/' ); // IMPORTANT: change the name of this constant to something unique to prevent conflicts with other plugins using this system
 
-    $table_name = $wpdb->prefix . "abandoned_cart_aelia_currency";
-    
-    $acfac_delete_table= "DROP TABLE " . $table_name ;
-    require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
-    $wpdb->get_results( $acfac_delete_table );
+// the name of your product. This is the title of your product in EDD and should match the download title in EDD exactly
+define( 'EDD_SL_ITEM_NAME_ACFAC', 'Aelia Currency Switcher addon for Abandoned Cart Plugin' ); // IMPORTANT: change the name of this constant to something unique to prevent conflicts with other plugins using this system
+
+if( ! class_exists( 'EDD_ACFAC_WOO_Plugin_Updater' ) ) {
+    // load our custom updater if it doesn't already exist
+    include( dirname( __FILE__ ) . '/plugin-updates/EDD_ACFAC_WOO_Plugin_Updater.php' );
 }
 
+// retrieve our license key from the DB
+$license_key = trim( get_option( 'edd_sample_license_key_acfac' ) );
+// setup the updater
+$edd_updater = new EDD_ACFAC_WOO_Plugin_Updater( EDD_SL_STORE_URL_ACFAC, __FILE__, array(
+    'version'   => '1.0',                     // current version number
+    'license'   => $license_key,                // license key (used get_option above to retrieve from DB)
+    'item_name' => EDD_SL_ITEM_NAME_ACFAC,     // name of this plugin
+    'author'    => 'Ashok Rane'                 // author of this plugin
+    )
+);
 
 if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
     
     class Abandoned_Cart_For_Aelia_Currency {
         public function __construct( ) {
-            register_activation_hook( __FILE__   , array( &$this, 'acfac_create_table' ) );
-            add_action ( 'acfac_add_data'        , array( &$this, 'acfac_add_abandoned_currency' ),10, 1 );
-            add_filter ( 'acfac_change_currency' , array( &$this, 'acfac_change_abandoned_currency' ),10, 3 );
-            add_action ( 'woocommerce_init'      , array( &$this, 'acfac_set_currency_from_recovered_cart'), 0);
-            add_action ( 'admin_init'            , array( &$this, 'acfac_check_compatibility' ) );
+            register_activation_hook( __FILE__     , array( &$this, 'acfac_create_table' ) );
+            add_action ( 'acfac_add_data'          , array( &$this, 'acfac_add_abandoned_currency' ),10, 1 );
+            add_filter ( 'acfac_change_currency'   , array( &$this, 'acfac_change_abandoned_currency' ),10, 4 );
+            add_filter ( 'acfac_get_cart_currency' , array( &$this, 'acfac_get_abandoned_currency' ),10, 2 );
+            add_action ( 'woocommerce_init'        , array( &$this, 'acfac_set_currency_from_recovered_cart'), 0);
+            add_action ( 'admin_init'              , array( &$this, 'acfac_check_compatibility' ) );
+            
+            /**
+             * Add new tab for the license key.
+             */
+            if ( ! has_action ('wcap_add_tabs' ) ){
+                add_action ( 'wcap_add_tabs'       , array( &$this, 'acfac_add_tab' ) );
+            }
+            add_action ( 'admin_init'              , array( &$this, 'acfac_initialize_settings_options' ), 11 );
+
+            add_action ( 'wcap_crm_data'           , array( &$this, 'acfac_display_data' ), 15 );
+
+            /**
+             * License key functions.
+             */  
+            add_action( 'admin_init'               , array( &$this, 'acfac_edd_register_option' ) );
+            add_action( 'admin_init'               , array( &$this, 'acfac_edd_deactivate_license' ) );
+            add_action( 'admin_init'               , array( &$this, 'acfc_edd_activate_license' ) );
+        }
+
+        /**
+         * It will new tab in abandoned cart page.
+         */
+        function acfac_add_tab () {
+            $wcap_action           = "";
+            if ( isset( $_GET['action'] ) ) {
+                $wcap_action = $_GET['action'];
+            }
+            $acfac_active = "";
+            if (  'wcap_crm' == $wcap_action ) {
+                $acfac_active = "nav-tab-active";
+            }
+            ?>
+            <a href="admin.php?page=woocommerce_ac_page&action=wcap_crm" class="nav-tab <?php if( isset( $acfac_active ) ) echo $acfac_active; ?>"> <?php _e( 'Addon Settings', 'woocommerce-ac' );?> </a>
+            <?php
+            
+        }
+
+        /**
+         * It will add the setting required for the addon.
+         */
+        function acfac_initialize_settings_options () {
+            
+            add_settings_section(
+                'acfac_general_settings_section',         
+                __( 'Aelia Currency Switcher addon for Abandoned Cart Settings', 'woocommerce-ac' ),
+                array($this, 'acfac_general_settings_section_callback' ), 
+                'acfac_section'     
+            );
+            
+            //Setting section and field for license options
+            add_settings_section(
+                'acfac_general_license_key_section',
+                __( 'Plugin License Options', 'woocommerce-ac' ),
+                array( $this, 'wcap_acfac_general_license_key_section_callback' ),
+                'acfac_section'
+            );
+            
+            add_settings_field(
+                'edd_sample_license_key_acfac',
+                __( 'License Key', 'woocommerce-ac' ),
+                array( $this, 'wcap_edd_sample_license_key_acfac_callback' ),
+                'acfac_section',
+                'acfac_general_license_key_section',
+                array( __( 'Enter your license key.', 'woocommerce-ac' ) )
+            );
+             
+            add_settings_field(
+            'activate_license_key_acfac_woo',
+            __( 'Activate License', 'woocommerce-ac' ),
+            array( $this, 'wcap_activate_license_key_acfac_woo_callback' ),
+            'acfac_section',
+            'acfac_general_license_key_section',
+            array( __( 'Enter your license key.', 'woocommerce-ac' ) )
+            );
+                        
+            // Finally, we register the fields with WordPress
+            
+            register_setting(
+                'wcap_acfac_setting',
+                'edd_sample_license_key_acfac'
+            );
+        }
+
+        
+        function acfac_general_settings_section_callback() {
+             
+        }
+
+        /**
+         * It will display the all settings field.
+         */
+        function acfac_display_data () {
+            ?>
+            
+            <?php
+            /**
+             * When we use the bulk action it will allot the action and mode.
+             */
+            $wcap_action = "";
+            /**
+             * When we click on the hover link it will take the action.
+             */
+            if ( '' == $wcap_action && isset( $_GET['action'] ) ) { 
+                $wcap_action = $_GET['action'];
+            }
+            /**
+             *  It will add the settings in the New tab.
+             */
+            if ( 'wcap_crm' == $wcap_action ) {
+                ?>
+                <form method="post" action="options.php" id="wcap_acfac_form">
+                    <?php settings_fields     ( 'wcap_acfac_setting' ); ?>
+                    <?php do_settings_sections( 'acfac_section' ); ?>
+                    <?php submit_button( 'Save Settings', 'primary', 'wcap-save-acfac-settings' ); ?>
+                </form>
+                <?php
+            }
+        }
+
+        /**
+         * WP Settings API callback for License plugin option
+         */
+        function wcap_acfac_general_license_key_section_callback() {
+        
+        }
+        
+        /**
+         * WP Settings API callback for License key
+         */
+        function wcap_edd_sample_license_key_acfac_callback( $args ) {
+            $edd_sample_license_key_ac_woo_field = get_option( 'edd_sample_license_key_acfac' );
+            printf(
+            '<input type="text" id="edd_sample_license_key_acfac" name="edd_sample_license_key_acfac" class="regular-text" value="%s" />',
+            isset( $edd_sample_license_key_ac_woo_field ) ? esc_attr( $edd_sample_license_key_ac_woo_field ) : ''
+                );
+                // Here, we'll take the first argument of the array and add it to a label next to the checkbox
+                $html = '<label for="edd_sample_license_key_acfac"> '  . $args[0] . '</label>';
+                echo $html;
+        }
+        /**
+         * WP Settings API callback for to Activate License key
+         */
+        function wcap_activate_license_key_acfac_woo_callback() {
+        
+            $license = get_option( 'edd_sample_license_key_acfac' );
+            $status  = get_option( 'edd_sample_license_status_acfac' );
+            ?>
+            <form method="post" action="options.php">
+            <?php if ( false !== $license ) { ?>
+                <?php if( $status !== false && $status == 'valid' ) { ?>
+                    <span style="color:green;"><?php _e( 'active' ); ?></span>
+                    <?php wp_nonce_field( 'edd_sample_nonce' , 'edd_sample_nonce' ); ?>
+                    <input type="submit" class="button-secondary" name="edd_acfac_license_deactivate" value="<?php _e( 'Deactivate License' ); ?>"/>
+                  <?php } else { ?>
+                        <?php 
+                        wp_nonce_field( 'edd_sample_nonce', 'edd_sample_nonce' ); 
+                        ?>
+                        <input type="submit" class="button-secondary" name="edd_acfac_license_activate" value="Activate License"/>
+                    <?php } ?>
+            <?php } ?>
+            </form>
+            <?php 
+        }
+
+        /**
+         * Illustrates how to deactivate a license key.
+         * This will descrease the site count
+         */
+        function acfac_edd_deactivate_license() {
+            // listen for our activate button to be clicked
+            if ( isset( $_POST['edd_acfac_license_deactivate'] ) ) {
+                // run a quick security check
+                if ( ! check_admin_referer( 'edd_sample_nonce', 'edd_sample_nonce' ) )
+                    return; // get out if we didn't click the Activate button
+                // retrieve the license from the database
+                $license = trim( get_option( 'edd_sample_license_key_acfac' ) );
+                // data to send in our API request
+                $api_params = array(
+                    'edd_action'=> 'deactivate_license',
+                    'license'   => $license,
+                    'item_name' => urlencode( EDD_SL_ITEM_NAME_ACFAC ) // the name of our product in EDD
+                );
+                // Call the custom API.
+                $response = wp_remote_get( add_query_arg( $api_params, EDD_SL_STORE_URL_ACFAC), array( 'timeout' => 15, 'sslverify' => false ) );
+                // make sure the response came back okay
+                if ( is_wp_error( $response ) )
+                    return false;
+                // decode the license data
+                $license_data = json_decode( wp_remote_retrieve_body( $response ) );
+                // $license_data->license will be either "deactivated" or "failed"
+                if ( $license_data->license == 'deactivated' )
+                    delete_option( 'edd_sample_license_status_acfac' );
+            }
+        }
+        
+        /**
+         * this illustrates how to check if
+         * a license key is still valid
+         * the updater does this for you,
+         * so this is only needed if you
+         * want to do something custom
+         */
+        function edd_sample_check_license() {
+            global $wp_version;
+            $license = trim( get_option( 'edd_sample_license_key_acfac' ) );
+            $api_params = array(
+                'edd_action' => 'check_license',
+                'license'    => $license,
+                'item_name'  => urlencode( EDD_SL_ITEM_NAME_ACFAC )
+            );
+            // Call the custom API.
+            $response = wp_remote_get( add_query_arg( $api_params, EDD_SL_STORE_URL_ACFAC), array( 'timeout' => 15, 'sslverify' => false ) );
+            if ( is_wp_error( $response ) )
+                return false;
+            $license_data = json_decode( wp_remote_retrieve_body( $response ) );
+            if ( $license_data->license == 'valid' ) {
+                echo 'valid';
+                exit;
+                // this license is still valid
+            } else {
+                echo 'invalid';
+                exit;
+                // this license is no longer valid
+            }
+        }
+        
+        /**
+         * Register the license key option
+         */
+        function acfac_edd_register_option() {
+            // creates our settings in the options table
+            register_setting( 'edd_sample_license', 'edd_sample_license_key_acfac', array( &$this, 'wcap_acfac_edd_sanitize_license' ) );
+        }
+         
+        function wcap_acfac_edd_sanitize_license( $new ) {
+            $old = get_option( 'edd_sample_license_key_acfac' );
+            if ( $old && $old != $new ) {
+                delete_option( 'edd_sample_license_key_acfac' ); // new license has been entered, so must reactivate
+            }
+            return $new;
+        }
+
+        /**
+         * When we click on the activate button it will activate the license
+         */
+        function acfc_edd_activate_license() {
+            // listen for our activate button to be clicked
+            if ( isset( $_POST['edd_acfac_license_activate'] ) ) {
+                // run a quick security check
+                if ( ! check_admin_referer( 'edd_sample_nonce', 'edd_sample_nonce' ) )
+                    return; // get out if we didn't click the Activate button
+                // retrieve the license from the database
+                $license = trim( get_option( 'edd_sample_license_key_acfac' ) );
+                // data to send in our API request
+                $api_params = array(
+                    'edd_action'=> 'activate_license',
+                    'license'   => $license,
+                    'item_name' => urlencode( EDD_SL_ITEM_NAME_ACFAC ) // the name of our product in EDD
+                );
+                // Call the custom API.
+                $response = wp_remote_get( add_query_arg( $api_params, EDD_SL_STORE_URL_ACFAC), array( 'timeout' => 15, 'sslverify' => false ) );
+                // make sure the response came back okay
+                if ( is_wp_error( $response ) )
+                    return false;
+                // decode the license data
+                $license_data = json_decode( wp_remote_retrieve_body( $response ) );
+                // $license_data->license will be either "active" or "inactive"
+                update_option( 'edd_sample_license_status_acfac', $license_data->license );
+            }
         }
 
         /**
          * Check if WooCommerce is active.
-         * This new comment added for a branch
          */
         public static function acfac_check_wcap_installed() {
         
@@ -61,9 +341,7 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
                     if ( isset( $_GET['activate'] ) ) {
                         unset( $_GET['activate'] );
                     }
-                        
                 }
-                    
             }
         }
 
@@ -80,9 +358,9 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
                 
         }
 
-        /*
-        This function will load the Client selected curency while client comes from the abandoned cart reminder emails.
-        */
+        /**
+         * This function will load the Client selected curency while client comes from the abandoned cart reminder emails.
+         */
         function acfac_set_currency_from_recovered_cart() {
             // User explicitly selected a currency, we should not do anything
             if(!empty($_POST['aelia_cs_currency'])) {
@@ -111,7 +389,7 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
                     if ( preg_match( '/&url=/', $link_decode_test ) ) { // it will check if any old email have open the link
                         $link_decode = $link_decode_test;
                     } else {
-                        $link_decode = woocommerce_abandon_cart::wcap_decrypt_validate( $validate_encoded_string );
+                        $link_decode = Wcap_Populate_Cart_Of_User::wcap_decrypt_validate( $validate_encoded_string );
                     }
                     
                     if ( !preg_match( '/&url=/', $link_decode ) ) { // This will decrypt more security
@@ -129,11 +407,11 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
             }
         }
 
-        /*
-        This function will give the currency of the selected abandoned cart
-        */
+        /** 
+         * This function will give the currency of the selected abandoned cart
+         */
 
-        function acfac_get_currency_of_abandoned_cart( $abandoned_sent_id ){
+        function acfac_get_currency_of_abandoned_cart( $abandoned_sent_id ) {
 
             global $wpdb;
             $wcap_email_sent_table_name       = $wpdb->prefix . "ac_sent_history"; 
@@ -152,11 +430,29 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
             return $selected_currency;
         }
 
-        /*
-        This function will create the table for storing the Aelia currency.
-        */
+        /**
+         * It will return the abandoned cart currency.
+         */
 
-        function acfac_create_table (){
+        function acfac_get_abandoned_currency ( $acfac_default_currency, $acfac_abandoned_id ) {
+
+            global $wpdb;
+            $acfc_table_name                 = $wpdb->prefix . "abandoned_cart_aelia_currency";
+            $acfac_get_currency_for_cart     = "SELECT acfac_currency FROM $acfc_table_name WHERE abandoned_cart_id = $acfac_abandoned_id ORDER BY `id` desc limit 1";
+            $acfac_get_currency_for_cart_res = $wpdb->get_results( $acfac_get_currency_for_cart );
+            if ( count( $acfac_get_currency_for_cart_res ) > 0 ){
+                $acfac_default_currency = $acfac_get_currency_for_cart_res[0]->acfac_currency;
+                return $acfac_default_currency;
+            }
+                
+            return $acfac_default_currency;
+        }
+
+        /** 
+         * This function will create the table for storing the Aelia currency.
+         */
+
+        function acfac_create_table () {
             global $wpdb;
             
             $wcap_collate = '';
@@ -176,11 +472,11 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
             $wpdb->query( $sql ); 
         }
 
-        /*
-        This function will insert the selected Currency of the Aelia plugin
-        */
+        /** 
+         * This function will insert the selected Currency of the Aelia plugin
+         */
 
-        function acfac_add_abandoned_currency ( $acfac_abandoned_id ){
+        function acfac_add_abandoned_currency ( $acfac_abandoned_id ) {
             global $wpdb;
 
             $acfac_currencey = get_woocommerce_currency(); 
@@ -203,10 +499,10 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
             }
         }
 
-        /*
-        This function will change the currency symbol on the order details, email & abandoned orders tab.
-        */
-        function acfac_change_abandoned_currency ( $acfac_default_currency, $acfac_abandoned_id,  $abandoned_total ){
+        /** 
+         * This function will change the currency symbol on the order details, email & abandoned orders tab.
+         */
+        function acfac_change_abandoned_currency ( $acfac_default_currency, $acfac_abandoned_id,  $abandoned_total, $is_ajax ) {
             
             global $wpdb;
             $acfc_table_name                 = $wpdb->prefix . "abandoned_cart_aelia_currency";
@@ -214,11 +510,26 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
             $acfac_get_currency_for_cart     = "SELECT acfac_currency FROM $acfc_table_name WHERE abandoned_cart_id = $acfac_abandoned_id ORDER BY `id` desc limit 1";
             $acfac_get_currency_for_cart_res = $wpdb->get_results( $acfac_get_currency_for_cart );
 
-            if ( !empty( $acfac_get_currency_for_cart_res ) ){
+            if ( count( $acfac_get_currency_for_cart_res ) > 0 ) {
 
                 $acfac_change_currency = array(
                     'ex_tax_label'       => false,
                     'currency'           => $acfac_get_currency_for_cart_res[0]->acfac_currency,
+                    'decimal_separator'  => wc_get_price_decimal_separator(),
+                    'thousand_separator' => wc_get_price_thousand_separator(),
+                    'decimals'           => wc_get_price_decimals(),
+                    'price_format'       => get_woocommerce_price_format()
+                ) ;
+                $acfac_default_currency = wc_price ( $abandoned_total, $acfac_change_currency );
+            }else if ( 'wcap_ajax' == $is_ajax ) {
+                /**
+                 * When we try to display the default currency in the abandoned cart details popup modal.
+                 * It was not showing the default currency for the individual line item price.
+                 * This condition will ensure that it will return price in default currency. 
+                 */
+                $acfac_change_currency = array(
+                    'ex_tax_label'       => false,
+                    'currency'           => get_option('woocommerce_currency'),
                     'decimal_separator'  => wc_get_price_decimal_separator(),
                     'thousand_separator' => wc_get_price_thousand_separator(),
                     'decimals'           => wc_get_price_decimals(),
