@@ -510,30 +510,52 @@ if ( ! class_exists( 'Abandoned_Cart_For_Aelia_Currency' ) ) {
             $acfac_get_currency_for_cart     = "SELECT acfac_currency FROM $acfc_table_name WHERE abandoned_cart_id = $acfac_abandoned_id ORDER BY `id` desc limit 1";
             $acfac_get_currency_for_cart_res = $wpdb->get_results( $acfac_get_currency_for_cart );
 
+            $acfac_aelia_settings = get_option('wc_aelia_currency_switcher');
+
+            if ( count( $acfac_get_currency_for_cart_res ) > 0 ){
+                $aelia_cur = $acfac_get_currency_for_cart_res[0]->acfac_currency;
+            }else{
+                $aelia_cur = get_option('woocommerce_currency');
+            }
+
+            $acfac_currency_position = $acfac_aelia_settings ['exchange_rates'][$aelia_cur]['symbol_position'];
+            $acfac_format = '%1$s%2$s';
+            switch ( $acfac_currency_position ) {
+                case 'left' :
+                    $acfac_format = '%1$s%2$s';
+                break;
+                case 'right' :
+                    $acfac_format = '%2$s%1$s';
+                break;
+                case 'left_space' :
+                    $acfac_format = '%1$s&nbsp;%2$s';
+                break;
+                case 'right_space' :
+                    $acfac_format = '%2$s&nbsp;%1$s';
+                break;
+            }
             if ( count( $acfac_get_currency_for_cart_res ) > 0 ) {
+
+                $aelia_cur = $acfac_get_currency_for_cart_res[0]->acfac_currency;
 
                 $acfac_change_currency = array(
                     'ex_tax_label'       => false,
-                    'currency'           => $acfac_get_currency_for_cart_res[0]->acfac_currency,
-                    'decimal_separator'  => wc_get_price_decimal_separator(),
-                    'thousand_separator' => wc_get_price_thousand_separator(),
-                    'decimals'           => wc_get_price_decimals(),
-                    'price_format'       => get_woocommerce_price_format()
+                    'currency'           => $aelia_cur,
+                    'decimal_separator'  => $acfac_aelia_settings ['exchange_rates'][$aelia_cur]['decimal_separator'],
+                    'thousand_separator' => $acfac_aelia_settings ['exchange_rates'][$aelia_cur]['thousand_separator'],
+                    'decimals'           => $acfac_aelia_settings ['exchange_rates'][$aelia_cur]['decimals'],
+                    'price_format'       => $acfac_format
                 ) ;
                 $acfac_default_currency = wc_price ( $abandoned_total, $acfac_change_currency );
-            }else if ( 'wcap_ajax' == $is_ajax ) {
-                /**
-                 * When we try to display the default currency in the abandoned cart details popup modal.
-                 * It was not showing the default currency for the individual line item price.
-                 * This condition will ensure that it will return price in default currency. 
-                 */
+
+            } else {
                 $acfac_change_currency = array(
                     'ex_tax_label'       => false,
                     'currency'           => get_option('woocommerce_currency'),
-                    'decimal_separator'  => wc_get_price_decimal_separator(),
-                    'thousand_separator' => wc_get_price_thousand_separator(),
-                    'decimals'           => wc_get_price_decimals(),
-                    'price_format'       => get_woocommerce_price_format()
+                    'decimal_separator'  => $acfac_aelia_settings ['exchange_rates'][$aelia_cur]['decimal_separator'],
+                    'thousand_separator' => $acfac_aelia_settings ['exchange_rates'][$aelia_cur]['thousand_separator'],
+                    'decimals'           => $acfac_aelia_settings ['exchange_rates'][$aelia_cur]['decimals'],
+                    'price_format'       => $acfac_format
                 ) ;
                 $acfac_default_currency = wc_price ( $abandoned_total, $acfac_change_currency );
             }
