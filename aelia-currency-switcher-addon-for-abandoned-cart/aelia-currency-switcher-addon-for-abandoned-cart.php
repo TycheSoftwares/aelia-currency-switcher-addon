@@ -15,7 +15,7 @@ $AcfacpdateChecker = '1.0';
 define( 'EDD_SL_STORE_URL_ACFAC', 'http://www.tychesoftwares.com/' ); // IMPORTANT: change the name of this constant to something unique to prevent conflicts with other plugins using this system
 
 // the name of your product. This is the title of your product in EDD and should match the download title in EDD exactly
-define( 'EDD_SL_ITEM_NAME_ACFAC', 'Aelia Currency Switcher addon for Abandoned Cart Plugin' ); // IMPORTANT: change the name of this constant to something unique to prevent conflicts with other plugins using this system
+define( 'EDD_SL_ITEM_NAME_ACFAC', 'Aelia Currency Switcher addon for WooCommerce Abandoned Cart Plugin' ); // IMPORTANT: change the name of this constant to something unique to prevent conflicts with other plugins using this system
 
 if( ! class_exists( 'EDD_ACFAC_WOO_Plugin_Updater' ) ) {
     // load our custom updater if it doesn't already exist
